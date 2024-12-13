@@ -23,20 +23,17 @@ encode_packet(Type, Data, _Length) ->
     {<<PacketSize:16, 0:16, Type:8, 0:8, 0:16, Data/binary>>, <<>>}.
 
 encode_record(description, EnvOpts) ->
-    {ok, UserHost}  = inet:gethostname(),
     User            = proplists:get_value(user, EnvOpts),
     Host            = proplists:get_value(host, EnvOpts, ?DEF_HOST),
     Port            = proplists:get_value(port, EnvOpts, ?DEF_PORT),
     Sid             = proplists:get_value(sid, EnvOpts, ?DEF_SID),
     ServiceName     = proplists:get_value(service_name, EnvOpts),
-    AppName         = proplists:get_value(app_name, EnvOpts, "jamdb"),
     SslOpts         = proplists:get_value(ssl, EnvOpts, []),
 
     Desc =  "(DESCRIPTION=(CONNECT_DATA=("++ case ServiceName of
         undefined -> "SID="++Sid;
                 _ -> "SERVICE_NAME="++ServiceName end ++
-    ")(CID=(PROGRAM="++AppName++
-    ")(HOST="++UserHost++")(USER="++User++
+    ")(CID=(USER="++User++
     ")))(ADDRESS=(PROTOCOL="++ case SslOpts of
                [] -> "TCP";
                 _ -> "TCPS" end ++
