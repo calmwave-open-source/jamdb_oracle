@@ -38,7 +38,11 @@ encode_record(description, EnvOpts) ->
                [] -> "TCP";
                 _ -> "TCPS" end ++
     ")(HOST="++Host++")(PORT="++integer_to_list(Port)++")))",
-
+    case string:length(Desc) of
+        % otherwise the connection will just hang, better to give feedback
+        TooLong when TooLong > 230 -> throw("Connection string too long.");
+        _ -> ok
+    end,
     encode_str(Desc);
 encode_record(login, #oraclient{env=EnvOpts,sdu=Sdu,auth=Desc}) ->
     Data = if Desc =/= [] -> encode_str(Desc); true -> encode_record(description, EnvOpts) end,
