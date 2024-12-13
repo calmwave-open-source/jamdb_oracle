@@ -16,17 +16,17 @@ defmodule Ecto.Adapters.Jamdb.Oracle do
   @impl true
   def loaders({:array, _}, type), do: [&array_decode/1, type]
   def loaders({:embed, _}, type), do: [&json_decode/1, &Ecto.Type.embedded_load(type, &1, :json)]
-  def loaders({:map, _}, type),   do: [&json_decode/1, &Ecto.Type.embedded_load(type, &1, :json)]
-  def loaders(:map, type),        do: [&json_decode/1, type]
-  def loaders(:float, type),      do: [&float_decode/1, type]
-  def loaders(:boolean, type),    do: [&bool_decode/1, type]
-  def loaders(:binary_id, type),  do: [Ecto.UUID, type]
-  def loaders(_, type),           do: [type]
+  def loaders({:map, _}, type), do: [&json_decode/1, &Ecto.Type.embedded_load(type, &1, :json)]
+  def loaders(:map, type), do: [&json_decode/1, type]
+  def loaders(:float, type), do: [&float_decode/1, type]
+  def loaders(:boolean, type), do: [&bool_decode/1, type]
+  def loaders(:binary_id, type), do: [Ecto.UUID, type]
+  def loaders(_, type), do: [type]
 
   @impl true
-  def dumpers({:map, _}, type),   do: [&Ecto.Type.embedded_dump(type, &1, :json)]
-  def dumpers(:binary_id, type),  do: [type, Ecto.UUID]
-  def dumpers(_, type),           do: [type]
+  def dumpers({:map, _}, type), do: [&Ecto.Type.embedded_dump(type, &1, :json)]
+  def dumpers(:binary_id, type), do: [type, Ecto.UUID]
+  def dumpers(_, type), do: [type]
 
   defp bool_decode("0"), do: {:ok, false}
   defp bool_decode("1"), do: {:ok, true}
@@ -50,7 +50,6 @@ defmodule Ecto.Adapters.Jamdb.Oracle do
   def supports_ddl_transaction? do
     false
   end
-
 end
 
 defmodule Ecto.Adapters.Jamdb.Oracle.Connection do
@@ -81,7 +80,7 @@ defmodule Ecto.Adapters.Jamdb.Oracle.Connection do
   @impl true
   def query(conn, query, params, opts) do
     case DBConnection.prepare_execute(conn, query!(query, "", opts), params, opts) do
-      {:ok, _, result}  -> {:ok, result}
+      {:ok, _, result} -> {:ok, result}
       {:error, err} -> {:error, err}
     end
   end
@@ -102,6 +101,7 @@ defmodule Ecto.Adapters.Jamdb.Oracle.Connection do
   defp query!(sql, name, opts) when is_binary(sql) or is_list(sql) do
     %Jamdb.Oracle.Query{statement: IO.iodata_to_binary(sql), name: name, batch: opts[:batch]}
   end
+
   defp query!(%{} = query, _name, _opts) do
     query
   end
@@ -117,7 +117,9 @@ defmodule Ecto.Adapters.Jamdb.Oracle.Connection do
   @impl true
   defdelegate delete_all(query), to: Jamdb.Oracle.Query
   @impl true
-  defdelegate insert(prefix, table, header, rows, on_conflict, returning, placeholders), to: Jamdb.Oracle.Query
+  defdelegate insert(prefix, table, header, rows, on_conflict, returning, placeholders),
+    to: Jamdb.Oracle.Query
+
   @impl true
   defdelegate update(prefix, table, fields, filters, returning), to: Jamdb.Oracle.Query
   @impl true
@@ -130,5 +132,4 @@ defmodule Ecto.Adapters.Jamdb.Oracle.Connection do
   defdelegate ddl_logs(result), to: Jamdb.Oracle.SQL
   @impl true
   defdelegate to_constraints(err, opts), to: Jamdb.Oracle.SQL
-
 end
