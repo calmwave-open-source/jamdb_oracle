@@ -6,7 +6,7 @@ defmodule Jamdb.Oracle.Query do
 
   """
 
-  defstruct [:statement, :name, :batch]  
+  defstruct [:statement, :name, :batch]
 
   @parent_as __MODULE__
   alias Ecto.Query.{BooleanExpr, ByExpr, JoinExpr, QueryExpr, WithExpr}
@@ -15,22 +15,36 @@ defmodule Jamdb.Oracle.Query do
   def all(query, as_prefix \\ []) do
     sources = create_names(query, as_prefix)
 
-    cte      = cte(query, sources)
+    cte = cte(query, sources)
     {from, hints} = from(query, sources)
     {select, fields} = select(query, sources)
-    window   = window(query, sources)
-    join     = join(query, sources)
-    where    = where(query, sources)
+    window = window(query, sources)
+    join = join(query, sources)
+    where = where(query, sources)
     group_by = group_by(query, sources)
-    having   = having(query, sources)
+    having = having(query, sources)
     combinations = combinations(query)
     order_by = order_by(query, sources)
-    limit    = limit(query, sources)
-    offset   = offset(query, sources)
-    lock     = lock(query.lock)
+    limit = limit(query, sources)
+    offset = offset(query, sources)
+    lock = lock(query.lock)
 
-    [cte, select, hints, fields, window, from, join, where,
-     group_by, having, combinations, order_by, offset, limit | lock]
+    [
+      cte,
+      select,
+      hints,
+      fields,
+      window,
+      from,
+      join,
+      where,
+      group_by,
+      having,
+      combinations,
+      order_by,
+      offset,
+      limit | lock
+    ]
   end
 
   @doc false
@@ -47,6 +61,7 @@ defmodule Jamdb.Oracle.Query do
         {from, name} = get_source(query, sources, 0, source)
         {[from, ?\s, name], where(%{query | wheres: query.wheres}, sources)}
       end
+
     fields = update_fields(query, sources)
 
     ["UPDATE ", rows, " SET ", fields, where]
@@ -71,9 +86,10 @@ defmodule Jamdb.Oracle.Query do
   end
 
   @doc false
-  def insert(prefix, table, header, rows, _on_conflict, returning, placeholders \\ []) do
+  def insert(prefix, table, header, rows, on_conflict, returning, placeholders \\ []) do
     counter_offset = length(placeholders) + 1
     from = insert_all(rows, counter_offset)
+
     values =
       if header == [] do
         [?\s | from]
@@ -81,7 +97,22 @@ defmodule Jamdb.Oracle.Query do
         [?\s, ?(, intersperse_map(header, ?,, &quote_name/1), ?), ?\s | from]
       end
 
-    ["INSERT INTO ", quote_table(prefix, table), values | returning(returning)]
+    on_conflict_comment =
+      case on_conflict do
+        {:nothing, _, _} ->
+          pkey_name = String.replace(table, "\"", "") <> "_PKEY"
+
+          "/*+ ignore_row_on_dupkey_index(#{quote_table(prefix, table)}, #{pkey_name}) */"
+
+        _ ->
+          ""
+      end
+
+    [
+      "INSERT #{on_conflict_comment} INTO ",
+      quote_table(prefix, table),
+      values | returning(returning)
+    ]
   end
 
   defp insert_all(query = %Ecto.Query{}, _counter) do
@@ -89,11 +120,14 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp insert_all(rows, counter) do
-    ["VALUES ", intersperse_reduce(rows, ?,, counter, fn row, counter ->
-      {row, counter} = insert_each(row, counter)
-      {[?(, row, ?)], counter}
-    end)
-    |> elem(0)]
+    [
+      "VALUES ",
+      intersperse_reduce(rows, ?,, counter, fn row, counter ->
+        {row, counter} = insert_each(row, counter)
+        {[?(, row, ?)], counter}
+      end)
+      |> elem(0)
+    ]
   end
 
   defp insert_each(values, counter) do
@@ -114,31 +148,40 @@ defmodule Jamdb.Oracle.Query do
 
   @doc false
   def update(prefix, table, fields, filters, returning) do
-    {fields, count} = intersperse_reduce(fields, ", ", 1, fn field, acc ->
-      {[quote_name(field), " = :" | Integer.to_string(acc)], acc + 1}
-    end)
-
-    {filters, _count} = intersperse_reduce(filters, " AND ", count, fn
-      {field, nil}, acc ->
-        {[quote_name(field), " IS NULL"], acc}
-
-      {field, _value}, acc ->
+    {fields, count} =
+      intersperse_reduce(fields, ", ", 1, fn field, acc ->
         {[quote_name(field), " = :" | Integer.to_string(acc)], acc + 1}
-    end)
+      end)
 
-    ["UPDATE ", quote_table(prefix, table), " SET ",
-     fields, " WHERE ", filters | returning(returning)]
+    {filters, _count} =
+      intersperse_reduce(filters, " AND ", count, fn
+        {field, nil}, acc ->
+          {[quote_name(field), " IS NULL"], acc}
+
+        {field, _value}, acc ->
+          {[quote_name(field), " = :" | Integer.to_string(acc)], acc + 1}
+      end)
+
+    [
+      "UPDATE ",
+      quote_table(prefix, table),
+      " SET ",
+      fields,
+      " WHERE ",
+      filters | returning(returning)
+    ]
   end
 
   @doc false
   def delete(prefix, table, filters, returning) do
-    {filters, _} = intersperse_reduce(filters, " AND ", 1, fn
-      {field, nil}, acc ->
-        {[quote_name(field), " IS NULL"], acc}
+    {filters, _} =
+      intersperse_reduce(filters, " AND ", 1, fn
+        {field, nil}, acc ->
+          {[quote_name(field), " IS NULL"], acc}
 
-      {field, _value}, acc ->
-        {[quote_name(field), " = :" | Integer.to_string(acc)], acc + 1}
-    end)
+        {field, _value}, acc ->
+          {[quote_name(field), " = :" | Integer.to_string(acc)], acc + 1}
+      end)
 
     ["DELETE FROM ", quote_table(prefix, table), " WHERE ", filters | returning(returning)]
   end
@@ -146,9 +189,21 @@ defmodule Jamdb.Oracle.Query do
   ## Query generation
 
   binary_ops =
-    [==: " = ", !=: " != ", <=: " <= ", >=: " >= ", <: " < ", >: " > ",
-     +: " + ", -: " - ", *: " * ", /: " / ",
-     and: " AND ", or: " OR ", like: " LIKE "]
+    [
+      ==: " = ",
+      !=: " != ",
+      <=: " <= ",
+      >=: " >= ",
+      <: " < ",
+      >: " > ",
+      +: " + ",
+      -: " - ",
+      *: " * ",
+      /: " / ",
+      and: " AND ",
+      or: " OR ",
+      like: " LIKE "
+    ]
 
   @binary_ops Keyword.keys(binary_ops)
 
@@ -164,6 +219,7 @@ defmodule Jamdb.Oracle.Query do
 
   defp select_fields([], _sources, _query),
     do: "1"
+
   defp select_fields(fields, sources, query) do
     intersperse_map(fields, ", ", fn
       {:&, _, [idx]} ->
@@ -171,8 +227,10 @@ defmodule Jamdb.Oracle.Query do
           {_, source, nil} -> [source, ?. | "*"]
           {_, source, _} -> source
         end
+
       {key, value} ->
         [expr(value, sources, query), ?\s | quote_name(key)]
+
       value ->
         expr(value, sources, query)
     end)
@@ -202,6 +260,7 @@ defmodule Jamdb.Oracle.Query do
   defp cte_expr({name, cte}, sources, query) do
     [quote_name(name), " AS ", cte_query(cte, sources, query)]
   end
+
   defp cte_expr({name, _opts, cte}, sources, query) do
     [quote_name(name), " AS ", cte_query(cte, sources, query)]
   end
@@ -216,10 +275,13 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp update_fields(%{updates: updates} = query, sources) do
-    for(%{expr: expr} <- updates,
-        {op, kw} <- expr,
-        {key, value} <- kw,
-        do: update_op(op, key, value, sources, query)) |> Enum.intersperse(", ")
+    for(
+      %{expr: expr} <- updates,
+      {op, kw} <- expr,
+      {key, value} <- kw,
+      do: update_op(op, key, value, sources, query)
+    )
+    |> Enum.intersperse(", ")
   end
 
   defp update_op(:set, key, value, sources, query) do
@@ -227,27 +289,38 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp update_op(:inc, key, value, sources, query) do
-    [quote_name(key), " = ", quote_qualified_name(key, sources, 0), " + " |
-     expr(value, sources, query)]
+    [
+      quote_name(key),
+      " = ",
+      quote_qualified_name(key, sources, 0),
+      " + "
+      | expr(value, sources, query)
+    ]
   end
 
   defp update_op(command, _key, _value, _sources, query) do
-    error!(query, "unknown update operation #{inspect command}")
+    error!(query, "unknown update operation #{inspect(command)}")
   end
 
   defp using_join(%{joins: []}, _kind, []), do: []
+
   defp using_join(%{joins: _} = query, _kind, []) do
     error!(query, "update_all/delete_all joins are not supported")
   end
+
   defp using_join(%{joins: _}, _kind, _), do: []
 
   defp join(%{joins: []}, _sources), do: []
+
   defp join(%{joins: joins} = query, sources) do
-    [?\s | intersperse_map(joins, ?\s, fn
-      %JoinExpr{on: %QueryExpr{expr: expr}, qual: qual, ix: ix, source: source} ->
-        {join, name} = get_source(query, sources, ix, source)
-        [join_qual(qual), join, ?\s, name | join_on(qual, expr, sources, query)]
-    end)]
+    [
+      ?\s
+      | intersperse_map(joins, ?\s, fn
+          %JoinExpr{on: %QueryExpr{expr: expr}, qual: qual, ix: ix, source: source} ->
+            {join, name} = get_source(query, sources, ix, source)
+            [join_qual(qual), join, ?\s, name | join_on(qual, expr, sources, query)]
+        end)
+    ]
   end
 
   defp join_on(:cross, true, _sources, _query), do: []
@@ -255,9 +328,9 @@ defmodule Jamdb.Oracle.Query do
   defp join_on(_qual, expr, sources, query), do: [" ON " | expr(expr, sources, query)]
 
   defp join_qual(:inner), do: "INNER JOIN "
-  defp join_qual(:left),  do: "LEFT OUTER JOIN "
+  defp join_qual(:left), do: "LEFT OUTER JOIN "
   defp join_qual(:right), do: "RIGHT OUTER JOIN "
-  defp join_qual(:full),  do: "FULL OUTER JOIN "
+  defp join_qual(:full), do: "FULL OUTER JOIN "
   defp join_qual(:cross), do: "CROSS JOIN "
 
   defp where(%{wheres: wheres} = query, sources) do
@@ -269,15 +342,19 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp group_by(%{group_bys: []}, _sources), do: []
+
   defp group_by(%{group_bys: group_bys} = query, sources) do
-    [" GROUP BY " |
-     intersperse_map(group_bys, ", ", fn
-       %ByExpr{expr: expr} ->
-         intersperse_map(expr, ", ", &expr(&1, sources, query))
-     end)]
+    [
+      " GROUP BY "
+      | intersperse_map(group_bys, ", ", fn
+          %ByExpr{expr: expr} ->
+            intersperse_map(expr, ", ", &expr(&1, sources, query))
+        end)
+    ]
   end
 
   defp window(%{windows: []}, _sources), do: []
+
   defp window(%{windows: windows} = query, sources) do
     intersperse_map(windows, ", ", fn
       {_, %{expr: kw}} ->
@@ -302,17 +379,21 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp order_by(%{order_bys: []}, _sources), do: []
+
   defp order_by(%{order_bys: order_bys} = query, sources) do
-    [" ORDER BY " |
-     intersperse_map(order_bys, ", ", fn %ByExpr{expr: expr} ->
-         intersperse_map(expr, ", ", &order_by_expr(&1, sources, query))
-     end)]
+    [
+      " ORDER BY "
+      | intersperse_map(order_bys, ", ", fn %ByExpr{expr: expr} ->
+          intersperse_map(expr, ", ", &order_by_expr(&1, sources, query))
+        end)
+    ]
   end
 
   defp order_by_expr({dir, expr}, sources, query) do
     str = expr(expr, sources, query)
+
     case dir do
-      :asc  -> str
+      :asc -> str
       :asc_nulls_last -> [str | " ASC NULLS LAST"]
       :asc_nulls_first -> [str | " ASC NULLS FIRST"]
       :desc -> [str | " DESC"]
@@ -322,11 +403,13 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp limit(%{limit: nil}, _sources), do: []
+
   defp limit(%{limit: %{expr: expr}} = query, sources) do
     [" FETCH NEXT ", expr(expr, sources, query), " ROWS ONLY"]
   end
-  
+
   defp offset(%{offset: nil}, _sources), do: []
+
   defp offset(%{offset: %{expr: expr}} = query, sources) do
     [" OFFSET ", expr(expr, sources, query), " ROWS"]
   end
@@ -344,14 +427,19 @@ defmodule Jamdb.Oracle.Query do
   defp lock(lock_clause), do: [?\s | lock_clause]
 
   defp boolean(_name, [], _sources, _query), do: []
+
   defp boolean(name, [%{expr: expr, op: op} | query_exprs], sources, query) do
-    [name |
-     Enum.reduce(query_exprs, {op, paren_expr(expr, sources, query)}, fn
-       %BooleanExpr{expr: expr, op: op}, {op, acc} ->
-         {op, [acc, operator_to_boolean(op), paren_expr(expr, sources, query)]}
-       %BooleanExpr{expr: expr, op: op}, {_, acc} ->
-         {op, [?(, acc, ?), operator_to_boolean(op), paren_expr(expr, sources, query)]}
-     end) |> elem(1)]
+    [
+      name
+      | Enum.reduce(query_exprs, {op, paren_expr(expr, sources, query)}, fn
+          %BooleanExpr{expr: expr, op: op}, {op, acc} ->
+            {op, [acc, operator_to_boolean(op), paren_expr(expr, sources, query)]}
+
+          %BooleanExpr{expr: expr, op: op}, {_, acc} ->
+            {op, [?(, acc, ?), operator_to_boolean(op), paren_expr(expr, sources, query)]}
+        end)
+        |> elem(1)
+    ]
   end
 
   defp operator_to_boolean(:and), do: " AND "
@@ -433,7 +521,7 @@ defmodule Jamdb.Oracle.Query do
 
   defp expr({:fragment, _, parts}, sources, query) do
     Enum.map(parts, fn
-      {:raw, part}  -> part
+      {:raw, part} -> part
       {:expr, expr} -> expr(expr, sources, query)
     end)
     |> parens_for_select
@@ -452,11 +540,11 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp expr({:from_now, _, [count, interval]}, sources, query) do
-    interval(DateTime.utc_now, " + ", count, interval, sources, query)
+    interval(DateTime.utc_now(), " + ", count, interval, sources, query)
   end
 
   defp expr({:ago, _, [count, interval]}, sources, query) do
-    interval(DateTime.utc_now, " - ", count, interval, sources, query)
+    interval(DateTime.utc_now(), " - ", count, interval, sources, query)
   end
 
   defp expr({:filter, _, _}, _sources, query) do
@@ -490,6 +578,7 @@ defmodule Jamdb.Oracle.Query do
       {:binary_op, op} ->
         [left, right] = args
         [maybe_paren(left, sources, query), op | maybe_paren(right, sources, query)]
+
       {:fun, fun} ->
         [fun, ?(, modifier, intersperse_map(args, ", ", &expr(&1, sources, query)), ?)]
     end
@@ -498,23 +587,26 @@ defmodule Jamdb.Oracle.Query do
   defp expr(%Ecto.Query.Tagged{value: {:^, [], [idx]}, type: :binary}, _sources, _query) do
     ":#{idx + 1}"
   end
+
   defp expr(%Ecto.Query.Tagged{value: binary, type: :binary}, _sources, _query) do
     ["'", Base.encode16(binary, case: :upper), "'"]
   end
+
   defp expr(%Ecto.Query.Tagged{value: literal, type: type}, sources, query)
-    when type in ~w(binary_id uuid)a  do
+       when type in ~w(binary_id uuid)a do
     ["HEXTORAW(", expr(literal, sources, query), ?)]
   end
+
   defp expr(%Ecto.Query.Tagged{value: literal, type: type}, sources, query) do
     ["CAST(", expr(literal, sources, query), " AS ", Jamdb.Oracle.SQL.to_db_type(type), ?)]
   end
 
-  defp expr(nil, _sources, _query),   do: "NULL"
-  defp expr(true, _sources, _query),  do: "1"
+  defp expr(nil, _sources, _query), do: "NULL"
+  defp expr(true, _sources, _query), do: "1"
   defp expr(false, _sources, _query), do: "0"
 
   defp expr(literal, _sources, _query) when is_binary(literal) or is_list(literal) do
-     ["'", escape_string(literal), "'"]
+    ["'", escape_string(literal), "'"]
   end
 
   defp expr(literal, _sources, _query) when is_integer(literal) do
@@ -526,8 +618,16 @@ defmodule Jamdb.Oracle.Query do
   end
 
   defp interval(datetime, literal, count, interval, sources, query) do
-    [?(, expr(datetime, sources, query), literal, " INTERVAL '", 
-         expr(count, sources, query), "' ", interval, ?)]
+    [
+      ?(,
+      expr(datetime, sources, query),
+      literal,
+      " INTERVAL '",
+      expr(count, sources, query),
+      "' ",
+      interval,
+      ?)
+    ]
   end
 
   defp maybe_paren({op, _, [_, _]} = expr, sources, query) when op in @binary_ops,
@@ -541,11 +641,17 @@ defmodule Jamdb.Oracle.Query do
 
   defp returning([]),
     do: []
+
   defp returning(fields) do
-    returning = fields |> Enum.filter(& is_tuple(&1) == false)
-    [" RETURN ", intersperse_map(returning, ", ", &quote_name/1),
-     " INTO ", intersperse_map(returning, ", ", &[?: | quote_name(&1)])]
-  end   
+    returning = fields |> Enum.filter(&(is_tuple(&1) == false))
+
+    [
+      " RETURN ",
+      intersperse_map(returning, ", ", &quote_name/1),
+      " INTO ",
+      intersperse_map(returning, ", ", &[?: | quote_name(&1)])
+    ]
+  end
 
   defp create_names(%{sources: sources}, as_prefix) do
     create_names(sources, 0, tuple_size(sources), as_prefix) |> List.to_tuple()
@@ -580,6 +686,7 @@ defmodule Jamdb.Oracle.Query do
   defp create_alias(<<first, _rest::binary>>) when first in ?a..?z when first in ?A..?Z do
     <<first>>
   end
+
   defp create_alias(_) do
     "t"
   end
@@ -606,34 +713,42 @@ defmodule Jamdb.Oracle.Query do
   defp quote_name(name) when is_atom(name) do
     quote_name(Atom.to_string(name))
   end
+
   defp quote_name(name) do
     [name]
   end
 
-  defp quote_table(nil, name),    do: quote_table(name)
+  defp quote_table(nil, name), do: quote_table(name)
   defp quote_table(prefix, name), do: [quote_table(prefix), ?., quote_table(name)]
 
   defp quote_table(name) when is_atom(name),
     do: quote_table(Atom.to_string(name))
+
   defp quote_table(name) do
     [name]
   end
 
   defp intersperse_map(list, separator, mapper, acc \\ [])
+
   defp intersperse_map([], _separator, _mapper, acc),
     do: acc
+
   defp intersperse_map([elem], _separator, mapper, acc),
     do: [acc | mapper.(elem)]
+
   defp intersperse_map([elem | rest], separator, mapper, acc),
     do: intersperse_map(rest, separator, mapper, [acc, mapper.(elem), separator])
 
   defp intersperse_reduce(list, separator, user_acc, reducer, acc \\ [])
+
   defp intersperse_reduce([], _separator, user_acc, _reducer, acc),
     do: {acc, user_acc}
+
   defp intersperse_reduce([elem], _separator, user_acc, reducer, acc) do
     {elem, user_acc} = reducer.(elem, user_acc)
     {[acc | elem], user_acc}
   end
+
   defp intersperse_reduce([elem | rest], separator, user_acc, reducer, acc) do
     {elem, user_acc} = reducer.(elem, user_acc)
     intersperse_reduce(rest, separator, user_acc, reducer, [acc, elem, separator])
@@ -642,6 +757,7 @@ defmodule Jamdb.Oracle.Query do
   defp escape_string(value) when is_list(value) do
     escape_string(:binary.list_to_bin(value))
   end
+
   defp escape_string(value) when is_binary(value) do
     :binary.replace(value, "'", "''", [:global])
   end
@@ -649,10 +765,10 @@ defmodule Jamdb.Oracle.Query do
   defp error!(nil, msg) do
     raise ArgumentError, msg
   end
+
   defp error!(query, msg) do
     raise Ecto.QueryError, query: query, message: msg
   end
-  
 end
 
 defimpl String.Chars, for: Jamdb.Oracle.Query do
