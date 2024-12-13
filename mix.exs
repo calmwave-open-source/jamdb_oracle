@@ -21,7 +21,7 @@ defmodule Jamdb.Oracle.Mixfile do
   defp deps do
     [
       {:ecto_sql, "~> 3.12"},
-      {:xssl, path: "/Users/carlosbritolage/Code/xssl"}
+      {:xssl, github: "calmwave-open-source/xssl", branch: "main"}
     ]
   end
 
