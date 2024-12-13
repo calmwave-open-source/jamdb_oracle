@@ -31,8 +31,8 @@ encode_record(description, EnvOpts) ->
     ServiceName     = proplists:get_value(service_name, EnvOpts),
     AppName         = proplists:get_value(app_name, EnvOpts, "jamdb"),
     SslOpts         = proplists:get_value(ssl, EnvOpts, []),
-    encode_str(
-    "(DESCRIPTION=(CONNECT_DATA=("++ case ServiceName of
+
+    Desc =  "(DESCRIPTION=(CONNECT_DATA=("++ case ServiceName of
         undefined -> "SID="++Sid;
                 _ -> "SERVICE_NAME="++ServiceName end ++
     ")(CID=(PROGRAM="++AppName++
@@ -40,9 +40,18 @@ encode_record(description, EnvOpts) ->
     ")))(ADDRESS=(PROTOCOL="++ case SslOpts of
                [] -> "TCP";
                 _ -> "TCPS" end ++
-    ")(HOST="++Host++")(PORT="++integer_to_list(Port)++")))");
+    ")(HOST="++Host++")(PORT="++integer_to_list(Port)++")))",
+
+    erlang:display("encode_record(description)"),
+    erlang:display(Desc),
+
+    encode_str(Desc);
 encode_record(login, #oraclient{env=EnvOpts,sdu=Sdu,auth=Desc}) ->
     Data = if Desc =/= [] -> encode_str(Desc); true -> encode_record(description, EnvOpts) end,
+    erlang:display("encoded_desc()"),
+    erlang:display(Data),
+    erlang:display(byte_size(Data)),
+
     <<
     1,57,                    % Packet version number
     1,57,                    % Lowest compatible version number
@@ -60,6 +69,10 @@ encode_record(login, #oraclient{env=EnvOpts,sdu=Sdu,auth=Desc}) ->
     Data/binary
     >>;
 encode_record(sess, #oraclient{env=EnvOpts,seq=Tseq}) ->
+    erlang:display("encode_record.sess)"),
+    io:format("~20p~n", [EnvOpts]),
+    io:format("~20p~n", [Tseq]),
+
     {ok, UserHost}  = inet:gethostname(),
     UserPID         = os:getpid(),
     User            = proplists:get_value(user, EnvOpts),

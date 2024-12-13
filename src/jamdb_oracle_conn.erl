@@ -52,16 +52,39 @@ connect(Opts, Tout) ->
     NewPass     = proplists:get_value(newpassword, Opts, []),
     EnvOpts     = proplists:delete(password, proplists:delete(newpassword, Opts)),
     Passwd = spawn(fun() -> loop({Pass, NewPass}) end),
+
     case gen_tcp:connect(Host, Port, SockOpts, Tout) of
         {ok, Socket} ->
+            erlang:display("Connected TCP"),
             {ok, Socket2} = sock_connect(Socket, SslOpts, Tout),
-            {ok, [{recbuf, RecBuf}]} = inet:getopts(Socket2, [recbuf]),
-            inet:setopts(Socket2, [{buffer, RecBuf}]),
+            erlang:display("Connected Socket"),
+            erlang:display("Owner PID"),
+            io:format("~20p~n", [self()]),    
+
+            erlang:display("Calling getopts"),
+            io:format("~20p~n", [Socket2]),    
+            io:format("~20p~n", [recbuf]),    
+            
+            Result = sock_getopts(Socket2, [recbuf]),
+            % erlang:display("Got geopts result"),
+            %  io:format("Socket result: ~p", [Result]),
+
+            {ok, [{recbuf, RecBuf}]} = Result,
+            sock_setopts(Socket2, [{buffer, RecBuf}]),
+            % erlang:display("Issued Setopts"),
             State = #oraclient{socket=Socket2, env=EnvOpts, passwd=Passwd, auth=Desc,
             auto=Auto, fetch=Fetch, sdu=Sdu, charset=Charset, timeouts={Tout, ReadTout}},
+            erlang:display("Calling send_req.login"),
             {ok, State2} = send_req(login, State),
+
+            % {ok, [{keylog, KeylogItems}]} = xssl:connection_information(Socket2, [keylog]),
+            % file:write_file("/Users/carlosbritolage/Code/oracle-playground/key.log", [[KeylogItem,$\n] || KeylogItem <- KeylogItems]),
+
+            % {ok, State3} = send_req(dty, State2),
+            erlang:display("Calling handle_login.auth_negotiate"),
             handle_login(State2#oraclient{conn_state=auth_negotiate});
         {error, Reason} ->
+            erlang:display("TCP Error"),
             handle_error(socket, Reason, #oraclient{})
     end.
 
@@ -129,7 +152,17 @@ loop(Values) ->
 
 %% internal
 handle_login(#oraclient{socket=Socket, env=Env, sdu=Length, timeouts=Touts} = State) ->
-    case recv(Socket, Length, Touts) of
+    % erlang:display("handle_login"),
+    % io:format("~20p~n", [Socket]),
+    % io:format("~20p~n", [Env]),
+    % io:format("~20p~n", [Length]),
+    % io:format("~20p~n", [Touts]),
+    erlang:display("handle_login.recv"),
+    Recv = recv(Socket, Length, Touts),
+    erlang:display("handle_login.recv_result"),
+    io:format("~20p~n", [Recv]),
+     
+    case Recv of
         {ok, ?TNS_DATA, Data} ->
             case handle_token(Data, State) of
                 {ok, State2} -> handle_login(State2);
@@ -225,6 +258,8 @@ unzip([], Xs, Ys) -> {Ys, Ys ++ Xs}.
 
 send_req(login, State) ->
     Data = get_record(login, State, [], 0),
+    erlang:display("send_req(login)"),
+    erlang:display(Data),
     send(State, ?TNS_CONNECT, Data);
 send_req(auth, #oraclient{req=Request,seq=Task} = State) ->
     {Data, KeyConn} = get_record(auth, State, Request, Task),
@@ -388,26 +423,41 @@ get_record(Type, State, Request, Task) ->
 sock_renegotiate(Socket, _Opts, _Touts) when is_port(Socket) -> {ok, Socket};
 sock_renegotiate(Socket, Opts, {Tout, _ReadTout}) ->
     SslOpts = proplists:get_value(ssl, Opts, []),
-    {ok, Socket2} = ssl:close(Socket, {self(), Tout}),
-    ssl:connect(Socket2, SslOpts, Tout).
+    erlang:display("======sock_renegotiate======="),
+    io:format("~20p~n", [Socket]),
+    {ok, Socket2} = xssl:close(Socket, {self(), Tout}),
+    xssl:connect(Socket2, SslOpts, Tout).
 
 sock_connect(Socket, [], _Tout) when is_port(Socket) -> {ok, Socket};
-sock_connect(Socket, SslOpts, Tout) -> ssl:connect(Socket, SslOpts, Tout).
+sock_connect(Socket, SslOpts, Tout) -> xssl:connect(Socket, SslOpts, Tout).
+
+sock_getopts(Socket, Opts) when is_port(Socket) -> inet:getopts(Socket, Opts);
+sock_getopts(Socket, Opts) -> xssl:getopts(Socket, Opts).
+
+sock_setopts(Socket, Opts) when is_port(Socket) -> inet:setopts(Socket, Opts);
+sock_setopts(Socket, Opts) -> xssl:setopts(Socket, Opts).
 
 sock_close(undefined) -> ok;
 sock_close(Socket) when is_port(Socket) -> gen_tcp:close(Socket);
-sock_close(Socket) -> ssl:close(Socket).
+sock_close(Socket) -> xssl:close(Socket).
 
 sock_send(Socket, Packet) when is_port(Socket) -> gen_tcp:send(Socket, Packet);
-sock_send(Socket, Packet) -> ssl:send(Socket, Packet).
+sock_send(Socket, Packet) -> xssl:send(Socket, Packet).
 
 sock_recv(Socket, Length, Tout) when is_port(Socket) -> gen_tcp:recv(Socket, Length, Tout);
-sock_recv(Socket, Length, Tout) -> ssl:recv(Socket, Length, Tout).
+sock_recv(Socket, Length, Tout) -> xssl:recv(Socket, Length, Tout).
 
-send(State, _PacketType, <<>>) ->
-    {ok, State};
+send(State, _PacketType, <<>>) -> {ok, State};
+
 send(#oraclient{socket=Socket,sdu=Length} = State, PacketType, Data) ->
+    erlang:display("send_data"),
+    io:format("~20p~n", [PacketType]),
+    % io:format("~20p~n", [Data]),
+    io:format("~20p~n", [Length]),
     {Packet, Rest} = ?ENCODER:encode_packet(PacketType, Data, Length),
+    erlang:display("send_data.encoded_packet"),
+    % io:format("~20p~n", [Packet]),
+    % io:format("~20p~n", [Rest]),
     case sock_send(Socket, Packet) of
         ok ->
             send(State, PacketType, Rest);
@@ -416,7 +466,14 @@ send(#oraclient{socket=Socket,sdu=Length} = State, PacketType, Data) ->
     end.
 
 recv(Socket, Length, {Tout, _ReadTout} = Touts) ->
-    case sock_recv(Socket, 0, Tout) of
+    erlang:display("recv1"),
+    io:format("~20p~n", [Socket]),
+    io:format("~20p~n", [Length]),
+    io:format("~20p~n", [Tout]),
+    SocketResult = sock_recv(Socket, 0, Tout),
+    erlang:display("recv1 SocketResult"),
+    io:format("~20p~n", [SocketResult]),
+    case SocketResult of
         {ok, NetworkData} ->
             recv(Socket, Length, Touts, NetworkData, <<>>);
         {error, Reason} ->
@@ -424,6 +481,7 @@ recv(Socket, Length, {Tout, _ReadTout} = Touts) ->
     end.
 
 recv(read_timeout, Socket, Length, {_Tout, ReadTout} = Touts, Acc, Data) ->
+    erlang:display("recv2"),
     case sock_recv(Socket, 0, ReadTout) of
         {ok, NetworkData} ->
             recv(Socket, Length, Touts, <<Acc/bits, NetworkData/bits>>, Data);
@@ -434,6 +492,7 @@ recv(read_timeout, Socket, Length, {_Tout, ReadTout} = Touts, Acc, Data) ->
     end.
 
 recv(Socket, Length, Touts, Acc, Data) ->
+    erlang:display("recv3"),
     case ?DECODER:decode_packet(Acc, Length) of
         {ok, ?TNS_MARKER, <<1,0,1>>, _Rest} ->
             recv(read_timeout, Socket, Length, Touts, <<>>, <<>>);
