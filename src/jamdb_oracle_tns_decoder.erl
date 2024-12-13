@@ -36,10 +36,7 @@ decode_packet(<<PacketSize:16, _PacketFlags:16, Type, _Flags:8, 0:16, Rest/bits>
         _ ->
             {error, more}
     end;
-decode_packet(Err,Len) ->
-    erlang:display("Error Match"),
-    io:format("~ts~n", [Err]),
-    erlang:display(Len),
+decode_packet(_Err,_Len) ->
     {error, more}.
 
 decode_two_task(<<Token, Data/binary>>, Acc) ->

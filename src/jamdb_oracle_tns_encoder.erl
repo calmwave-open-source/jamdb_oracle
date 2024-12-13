@@ -42,16 +42,9 @@ encode_record(description, EnvOpts) ->
                 _ -> "TCPS" end ++
     ")(HOST="++Host++")(PORT="++integer_to_list(Port)++")))",
 
-    erlang:display("encode_record(description)"),
-    erlang:display(Desc),
-
     encode_str(Desc);
 encode_record(login, #oraclient{env=EnvOpts,sdu=Sdu,auth=Desc}) ->
     Data = if Desc =/= [] -> encode_str(Desc); true -> encode_record(description, EnvOpts) end,
-    erlang:display("encoded_desc()"),
-    erlang:display(Data),
-    erlang:display(byte_size(Data)),
-
     <<
     1,57,                    % Packet version number
     1,57,                    % Lowest compatible version number
@@ -69,10 +62,6 @@ encode_record(login, #oraclient{env=EnvOpts,sdu=Sdu,auth=Desc}) ->
     Data/binary
     >>;
 encode_record(sess, #oraclient{env=EnvOpts,seq=Tseq}) ->
-    erlang:display("encode_record.sess)"),
-    io:format("~20p~n", [EnvOpts]),
-    io:format("~20p~n", [Tseq]),
-
     {ok, UserHost}  = inet:gethostname(),
     UserPID         = os:getpid(),
     User            = proplists:get_value(user, EnvOpts),
