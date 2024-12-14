@@ -5,7 +5,7 @@ defmodule Jamdb.Oracle.Mixfile do
     [
       app: :jamdb_oracle,
       version: "0.5.11",
-      elixir: "~> 1.11",
+      elixir: "~> 1.17",
       description: description(),
       package: package(),
       deps: deps()
@@ -22,7 +22,7 @@ defmodule Jamdb.Oracle.Mixfile do
     [
       {:ecto_sql, "~> 3.12"},
       {:xssl,
-       github: "calmwave-open-source/xssl", ref: "d0af481a74929782dfa8232a0b895dc2cfe195ef"}
+       github: "calmwave-open-source/xssl", ref: "cf4383a7bc970035b850760d912bd59e8c82d44b"}
     ]
   end
 
