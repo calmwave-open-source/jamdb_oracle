@@ -1,0 +1,81 @@
+defmodule Ecto.Adapters.Jamdb.Oracle.Connection do
+  @moduledoc false
+
+  @behaviour Ecto.Adapters.SQL.Connection
+
+  @impl true
+  def child_spec(opts) do
+    DBConnection.child_spec(Jamdb.Oracle, opts)
+  end
+
+  @impl true
+  def execute(conn, query, params, opts) do
+    DBConnection.execute(conn, query!(query, "", opts), params, opts)
+  end
+
+  @impl true
+  def prepare_execute(conn, name, query, params, opts) do
+    DBConnection.prepare_execute(conn, query!(query, name, opts), params, opts)
+  end
+
+  @impl true
+  def stream(conn, query, params, opts) do
+    DBConnection.stream(conn, query!(query, "", opts), params, opts)
+  end
+
+  @impl true
+  def query(conn, query, params, opts) do
+    case DBConnection.prepare_execute(conn, query!(query, "", opts), params, opts) do
+      {:ok, _, result} -> {:ok, result}
+      {:error, err} -> {:error, err}
+    end
+  end
+
+  @impl true
+  def query_many(_conn, _query, _params, _opts) do
+    error!(nil, "query_many is not supported")
+  end
+
+  @impl true
+  def explain_query(conn, query, params, opts) do
+    case query(conn, IO.iodata_to_binary(["EXPLAIN PLAN FOR ", query]), params, opts) do
+      {:ok, _result} -> query(conn, "SELECT * FROM table(DBMS_XPLAN.DISPLAY())", params, opts)
+      {:error, err} -> {:error, err}
+    end
+  end
+
+  defp query!(sql, name, opts) when is_binary(sql) or is_list(sql) do
+    %Jamdb.Oracle.Query{statement: IO.iodata_to_binary(sql), name: name, batch: opts[:batch]}
+  end
+
+  defp query!(%{} = query, _name, _opts) do
+    query
+  end
+
+  defp error!(nil, msg) do
+    raise ArgumentError, msg
+  end
+
+  @impl true
+  defdelegate all(query), to: Jamdb.Oracle.Query
+  @impl true
+  defdelegate update_all(query), to: Jamdb.Oracle.Query
+  @impl true
+  defdelegate delete_all(query), to: Jamdb.Oracle.Query
+  @impl true
+  defdelegate insert(prefix, table, header, rows, on_conflict, returning, placeholders),
+    to: Jamdb.Oracle.Query
+
+  @impl true
+  defdelegate update(prefix, table, fields, filters, returning), to: Jamdb.Oracle.Query
+  @impl true
+  defdelegate delete(prefix, table, filters, returning), to: Jamdb.Oracle.Query
+  @impl true
+  defdelegate table_exists_query(table), to: Jamdb.Oracle.SQL
+  @impl true
+  defdelegate execute_ddl(command), to: Jamdb.Oracle.SQL
+  @impl true
+  defdelegate ddl_logs(result), to: Jamdb.Oracle.SQL
+  @impl true
+  defdelegate to_constraints(err, opts), to: Jamdb.Oracle.SQL
+end

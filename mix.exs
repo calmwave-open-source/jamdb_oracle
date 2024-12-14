@@ -22,7 +22,8 @@ defmodule Jamdb.Oracle.Mixfile do
     [
       {:ecto_sql, "~> 3.12"},
       {:xssl,
-       github: "calmwave-open-source/xssl", ref: "cf4383a7bc970035b850760d912bd59e8c82d44b"}
+       github: "calmwave-open-source/xssl", ref: "cf4383a7bc970035b850760d912bd59e8c82d44b"},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
